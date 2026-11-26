@@ -1,0 +1,98 @@
+#!/bin/bash
+# 在终端里试听 dsh-battlefield 的枪声素材（.ogg）。
+#
+#   sfxplay                     列出全部样本
+#   sfxplay blast-2             播放 sfx/blast-2.ogg
+#   sfxplay blast-2.ogg         后缀可写可不写
+#   sfxplay blast-1 -v 0.3      音量倍率（默认 0.6，1.0 = 原始）
+#   sfxplay blast-1 ram-2       按顺序连放几个
+#   sfxplay --slow blast-1      0.75 倍速（听尾音）
+#   sfxplay --rate 1.3 ram-1    指定倍速
+#   sfxplay --loop ram-1        循环播放，Ctrl-C 停
+#   sfxplay ~/Downloads/x.ogg   直接试听任意路径（不复制、不改文件）
+#
+# 为什么不是直接 afplay：macOS 自带的 afplay 不认 Ogg Vorbis
+# （报 AudioFileOpen failed 'typ?'），所以先 ffmpeg 转 wav 缓存，再 afplay。
+# 用 afplay 而不是 ffplay：ffplay 在非交互终端里会挂着不退出。
+
+set -u
+
+# 解析脚本真实位置（允许 /opt/homebrew/bin/sfxplay 这样的软链）
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+SFX="$ROOT/sfx"
+CACHE="${TMPDIR:-/tmp}/sfxplay-cache"
+mkdir -p "$CACHE" 2>/dev/null
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "缺少 ffmpeg，先装：brew install ffmpeg" >&2
+  exit 1
+fi
+
+vol=0.6
+rate=1
+loop=0
+list=1
+paths=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -l|--list) list=1; shift ;;
+    -v|--vol) vol="${2:-0.6}"; shift 2 ;;
+    -r|--rate) rate="${2:-1}"; shift 2 ;;
+    --slow) rate=0.75; shift ;;
+    --loop) loop=1; shift ;;
+    -*) echo "未知参数：$1（-h 看用法）" >&2; exit 2 ;;
+    *) list=0; paths+=("$1"); shift ;;
+  esac
+done
+
+if [ "$list" = 1 ] && [ ${#paths[@]} -eq 0 ]; then
+  printf '%-14s %8s  %s\n' 文件 时长 备注
+  for f in "$SFX"/*.ogg; do
+    [ -e "$f" ] || continue
+    name="$(basename "$f" .ogg)"
+    dur="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f" 2>/dev/null || echo '?')"
+    case "$name" in
+      blast-*)  note='炮击命中，主层主力' ;;
+      wall-*)   note='打在船壳上的钝击' ;;
+      miss-*)   note='远处掠过' ;;
+      ram-*)    note='撞船，木裂' ;;
+      heavy-*)  note='重击低频层' ;;
+      far-*)    note='远景爆炸' ;;
+      roger-*)  note='回车专用：电台应答' ;;
+      *)        note='' ;;
+    esac
+    printf '%-14s %7.2fs  %s\n' "$name" "$dur" "$note"
+  done
+  echo
+  echo "试听：sfxplay blast-1         音量：sfxplay blast-1 -v 0.3"
+  exit 0
+fi
+
+for arg in "${paths[@]}"; do
+  case "$arg" in
+    */*) file="$arg" ;;
+    *.ogg) file="$SFX/$arg" ;;
+    *) file="$SFX/$arg.ogg" ;;
+  esac
+  if [ ! -f "$file" ]; then
+    echo "找不到：$file" >&2
+    [ -d "$SFX" ] && echo "现有样本：$(ls "$SFX" | sed 's/\.ogg$//' | tr '\n' ' ')" >&2
+    exit 1
+  fi
+
+  key="$(basename "$file" .ogg)-$(stat -f %m "$file")"
+  wav="$CACHE/$key.wav"
+  if [ ! -f "$wav" ]; then
+    ffmpeg -y -loglevel error -i "$file" "$wav" || { echo "转码失败：$file" >&2; exit 1; }
+  fi
+
+  echo "▶ $(basename "$file")"
+  if [ "$loop" = 1 ]; then
+    while :; do afplay -v "$vol" -r "$rate" "$wav" || break; done
+  else
+    afplay -v "$vol" -r "$rate" "$wav"
+  fi
+done

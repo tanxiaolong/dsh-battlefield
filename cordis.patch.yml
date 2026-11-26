@@ -1,0 +1,7 @@
+# dsh-battlefield bundle layer.
+#
+# One Host row. The browser half is discovered from this package's package.json
+# `dsh.client` declaration, so no second row is needed.
+- insert:
+    - id: battlefield
+      name: dsh-battlefield

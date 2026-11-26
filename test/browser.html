@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>battlefield probe</title>
+  </head>
+  <body>
+    <!--
+      真浏览器冒烟测试：假 DOM 测的是逻辑，这里测的是「Chrome 里真的能跑起来」——
+      真 CSS 注入、真 KeyboardEvent、真 event.timeStamp、真 performance.now。
+      用 --headless=new --dump-dom 跑，结果写进 #result 与 <title>。
+    -->
+    <script>
+      window.__ModuleLoader__ = {
+        load(module) {
+          window.__mod = module;
+        },
+      };
+    </script>
+    <script src="../client.js"></script>
+    <pre id="result">pending</pre>
+    <script>
+      const results = [];
+      const check = (name, ok, detail) => results.push({ name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const fire = (type, code, extra) =>
+        window.dispatchEvent(new KeyboardEvent(type, Object.assign({ code, bubbles: true, cancelable: true }, extra || {})));
+
+      (async () => {
+        try {
+          if (!window.__mod) throw new Error('__ModuleLoader__ did not receive the module');
+          const mod = window.__mod.factory();
+          check('factory.name', mod.name === 'dsh-battlefield', mod.name);
+          const dispose = mod.apply();
+          check('apply returns dispose', typeof dispose === 'function');
+
+          check('root mounted', !!document.getElementById('dbf-root'));
+          check('style injected into <head>', !!document.getElementById('dbf-style'));
+          const tiles = document.querySelectorAll('.dbf-key').length;
+          check('60 key tiles', tiles === 60, tiles);
+          check('histogram bars', document.querySelectorAll('.dbf-hbar').length === 25, document.querySelectorAll('.dbf-hbar').length);
+
+          const root = document.getElementById('dbf-root');
+          const box = root.getBoundingClientRect();
+          check('panel has real size', box.width > 300 && box.height > 300, box.width + 'x' + Math.round(box.height));
+          check('panel sits inside viewport', box.right <= window.innerWidth + 1 && box.left >= 0, box.left + '..' + Math.round(box.right));
+          check('panel on top (z-index)', Number(getComputedStyle(root).zIndex) > 1000000, getComputedStyle(root).zIndex);
+
+          window.dispatchEvent(new Event('focus'));
+          fire('keydown', 'KeyA');
+          await sleep(90);
+          fire('keyup', 'KeyA');
+          fire('keydown', 'KeyB');
+          await sleep(150);
+          fire('keyup', 'KeyB');
+          fire('keydown', 'MetaLeft');
+          await sleep(250);
+          fire('keyup', 'MetaLeft');
+          fire('keydown', 'KeyC');
+          fire('keydown', 'KeyC', { repeat: true });
+          await sleep(60);
+          fire('keyup', 'KeyC');
+
+          const engine = window.__DSH_BATTLEFIELD__.engine;
+          const snap = engine.snapshot();
+          check('total counted', snap.total === 4, snap.total);
+          check('modifier excluded from dwell stats', snap.typed === 3, snap.typed);
+          check('mean ≈ 100ms (real timestamps)', Math.abs(snap.mean - 100) < 45, Math.round(snap.mean));
+          check('repeat did not add a keystroke', engine.perKey.get('KeyC').n === 1, engine.perKey.get('KeyC').n);
+          check('histogram has samples', snap.hist.reduce((a, b) => a + b, 0) === 3);
+          check('cpm is a number', Number.isFinite(snap.cpm), snap.cpm);
+
+          // 悬浮窗真的在响应按键：A 应该被点亮
+          const aTile = document.querySelector('.dbf-key[data-code="KeyA"]');
+          check('KeyA tile flashed', aTile.getAttribute('data-hot') === '1', aTile.getAttribute('data-hot'));
+
+          // 面板显示的文字
+          const cur = document.getElementById('dbf-cur');
+          check('current key shows a label', cur.textContent.length > 0, cur.textContent);
+
+          dispose();
+          check('dispose removes root', !document.getElementById('dbf-root'));
+          check('dispose removes style', !document.getElementById('dbf-style'));
+        } catch (error) {
+          results.push({ name: 'EXCEPTION', ok: false, detail: String(error && error.stack ? error.stack : error) });
+        }
+
+        const failed = results.filter((row) => !row.ok);
+        document.title = failed.length === 0 ? 'PROBE-PASS' : 'PROBE-FAIL-' + failed.length;
+        document.getElementById('result').textContent = JSON.stringify(results, null, 1);
+      })();
+    </script>
+  </body>
+</html>

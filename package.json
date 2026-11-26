@@ -1,0 +1,50 @@
+{
+  "name": "dsh-battlefield",
+  "version": "0.15.1",
+  "description": "A floating keyboard battlefield HUD: measures per-key dwell time, typing rhythm and an impact score, lights up a live key heatmap, and plays a gunshot whose weight follows your keystroke. 悬浮窗实时采集并展示按键数据，敲键即响枪声。",
+  "type": "module",
+  "license": "MIT",
+  "author": "tanxiaolong",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "keyboard",
+    "keystroke",
+    "dwell-time",
+    "typing",
+    "hud",
+    "键盘",
+    "按键",
+    "gunshot",
+    "sfx",
+    "sound",
+    "枪声",
+    "战场"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "engines": {
+    "dsh": ">=0.14.0"
+  }
+}

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>battlefield preview</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: radial-gradient(1200px 600px at 30% 10%, #16202e 0%, #0b0f16 60%, #07090d 100%);
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", system-ui, sans-serif;
+        color: #5b6675;
+      }
+      .hint {
+        padding: 28px 32px;
+        max-width: 420px;
+        line-height: 1.7;
+        font-size: 12.5px;
+      }
+      .hint b {
+        color: #9fb0c6;
+        font-weight: 600;
+      }
+      .hint code {
+        font: 11px ui-monospace, Menlo, monospace;
+        color: #7ee787;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 静态预览：装好真插件之前，先看看它长什么样。 -->
+    <div class="hint">
+      <b>dsh-battlefield</b><br />
+      <span id="hint-zh">这是插件悬浮窗的静态预览。<br />
+      真实环境里它挂在 DSH 窗口右下角，<code>⌘⇧B</code> 收起 / 展开。</span>
+      <span id="hint-en" hidden>Static preview of the floating HUD.<br />
+      In the real app it sits in the bottom-right corner of the DSH window; <code>⌘⇧B</code> collapses it.</span>
+    </div>
+    <script>
+      window.__ModuleLoader__ = {
+        load(module) {
+          window.__mod = module;
+        },
+      };
+    </script>
+    <script src="../client.js"></script>
+    <script>
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const fire = (type, code) =>
+        window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true }));
+
+      // 造一段有分布的敲击记录：常用键按得多、按得久，冷门键偶尔一下。
+      const script = [
+        ['KeyT', 78], ['KeyH', 96], ['KeyE', 71], ['KeyS', 88], ['KeyP', 62],
+        ['KeyA', 120], ['KeyC', 74], ['KeyE', 69], ['KeyB', 140], ['KeyA', 95],
+        ['KeyT', 83], ['KeyT', 91], ['KeyL', 77], ['KeyE', 66], ['KeyF', 173],
+        ['KeyI', 72], ['KeyE', 80], ['KeyL', 94], ['KeyD', 101], ['Space', 118],
+        ['KeyR', 69], ['KeyE', 88], ['KeyA', 112], ['KeyD', 76], ['KeyY', 64],
+        ['KeyM', 85], ['KeyA', 98], ['KeyP', 79], ['KeyS', 133], ['KeyE', 70],
+        ['KeyD', 92], ['KeyT', 86], ['KeyA', 108], ['KeyB', 152], ['KeyL', 83],
+        ['KeyE', 74], ['KeyO', 67], ['KeyW', 90], ['KeyD', 121], ['Space', 105],
+        ['KeyF', 81], ['KeyE', 73], ['KeyL', 88], ['KeyT', 95], ['KeyC', 168],
+      ];
+
+      (async () => {
+        // 截图用：先接管 setInterval，等数据造完后停掉插件的刷新定时器，
+        // 否则最后一帧永远停在过渡动画的中间态（无头浏览器的虚拟时钟跑得比动画快）。
+        const timers = [];
+        const realSetInterval = window.setInterval.bind(window);
+        window.setInterval = (fn, ms, ...rest) => {
+          const id = realSetInterval(fn, ms, ...rest);
+          timers.push(id);
+          return id;
+        };
+
+        // 预览图要可复现：清掉上一次跑预览留下的位置与累计击键
+        try {
+          window.localStorage.clear();
+        } catch {}
+
+        // ?lang=en 时按英文渲染（截图用）：假 ctx 只提供 locale，别的什么都不给。
+        const wantLang = /(?:^|[?&])lang=([a-z]+)/.exec(window.location.search);
+        const previewLang = wantLang ? wantLang[1] : 'zh';
+        if (previewLang !== 'zh') {
+          const zh = document.getElementById('hint-zh');
+          const en = document.getElementById('hint-en');
+          if (zh) zh.hidden = true;
+          if (en) en.hidden = false;
+          document.documentElement.lang = previewLang;
+        }
+        const previewCtx = {
+          locale: {
+            getLocale: () => ({ active: previewLang, locales: ['zh', 'en'], revision: 1 }),
+            subscribe: () => () => {},
+          },
+        };
+
+        const mod = window.__mod.factory();
+        mod.apply(previewCtx);
+
+        for (const [code, dwell] of script) {
+          fire('keydown', code);
+          await sleep(dwell);
+          fire('keyup', code);
+        }
+
+        // 停在最后一击上，让「当前键 / 冲击力」有内容
+        fire('keydown', 'KeyN');
+        await sleep(118);
+        fire('keyup', 'KeyN');
+
+        timers.forEach((id) => clearInterval(id));
+        window.setInterval = realSetInterval;
+
+        // 关掉过渡动画，让截图拿到最终态
+        const freeze = document.createElement('style');
+        freeze.textContent = '*{transition:none!important;animation:none!important}';
+        document.head.appendChild(freeze);
+
+        const instance = window.__DSH_BATTLEFIELD__;
+        instance.view.tick();
+        instance.view.refreshBoard();
+        instance.view.renderHeaviest();
+
+        // 无头浏览器的虚拟时钟会让滚动窗口内的速率算成 0（虚拟时间跳进而
+        // 事件时间戳不跳）。真实环境里这两个数由真实时钟算出，这里补上应有的值。
+        const metrics = document.querySelectorAll('#dbf-mets .dbf-metric b');
+        if (metrics[2]) metrics[2].textContent = '236';
+        const cells = document.querySelectorAll('#dbf-stats .dbf-cell b');
+        if (cells[5]) cells[5].textContent = '3.9';
+
+        // ?tune=1：展开细调面板再截图（8 个滑块，面板会变高，窗口按 900×820 截）。
+        if (/(?:^|[?&])tune=1/.test(window.location.search)) {
+          const gear = Array.from(document.querySelectorAll('#dbf-root button')).find(
+            (node) => node.textContent === '⚙',
+          );
+          if (gear) gear.click();
+          instance.view.tick();
+        }
+
+        document.title = 'PREVIEW-READY';
+      })();
+    </script>
+  </body>
+</html>
